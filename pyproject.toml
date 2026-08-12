@@ -1,0 +1,13 @@
+[project]
+name = "infinigen-webui"
+version = "0.1.0"
+description = "One-click web studio for Infinigen procedural 3D generation — materials, furniture and rooms for non-technical users"
+readme = "README.md"
+license = "BSD-3-Clause"
+requires-python = "==3.11.*"
+dependencies = [
+    "infinigen==2.0.0a1",
+]
+
+[tool.uv]
+package = false

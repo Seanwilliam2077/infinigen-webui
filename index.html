@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Infinigen 造物间</title>
+<style>
+:root{
+  --bg:#f6f5f0; --card:#ffffff; --ink:#2c2c2a; --ink2:#6b6a64;
+  --line:#e4e2d8; --accent:#534AB7; --accent-ink:#ffffff; --accent-soft:#EEEDFE;
+  --ok:#0F6E56; --err:#A32D2D; --radius:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#1c1c1a; --card:#262623; --ink:#ecebe4; --ink2:#a3a29a;
+         --line:#3a3935; --accent:#AFA9EC; --accent-ink:#1c1c1a; --accent-soft:#33305c; }
+}
+*{box-sizing:border-box; margin:0}
+body{background:var(--bg); color:var(--ink);
+  font-family:system-ui,"Microsoft YaHei","PingFang SC",sans-serif;
+  max-width:880px; margin:0 auto; padding:24px 16px 80px}
+header{margin:8px 0 20px}
+h1{font-size:26px; letter-spacing:.5px}
+header p{color:var(--ink2); margin-top:4px; font-size:14px}
+.card{background:var(--card); border:1px solid var(--line);
+  border-radius:var(--radius); padding:18px; margin-bottom:16px}
+.tabs{display:flex; gap:8px; margin-bottom:14px}
+.tab{flex:1; text-align:center; padding:10px 0; border-radius:10px; cursor:pointer;
+  border:1px solid var(--line); background:var(--card); font-size:15px; color:var(--ink)}
+.tab.on{background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:600}
+.grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:8px}
+.chip{border:1px solid var(--line); border-radius:12px; padding:10px 4px; text-align:center;
+  cursor:pointer; background:var(--card); transition:transform .06s}
+.chip:hover{transform:translateY(-1px)}
+.chip.on{border-color:var(--accent); background:var(--accent-soft); font-weight:600}
+.chip .e{font-size:22px; display:block; margin-bottom:4px}
+.chip .n{font-size:13px}
+.row{display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:14px}
+.lbl{font-size:13px; color:var(--ink2); margin-right:2px}
+.seg{display:inline-flex; border:1px solid var(--line); border-radius:10px; overflow:hidden}
+.seg button{border:0; background:var(--card); color:var(--ink); padding:8px 14px;
+  cursor:pointer; font-size:13px; border-right:1px solid var(--line)}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--accent); color:var(--accent-ink); font-weight:600}
+#seed{width:120px; padding:8px 10px; border:1px solid var(--line); border-radius:10px;
+  background:var(--card); color:var(--ink); font-size:14px}
+.btn{border:0; border-radius:10px; padding:10px 16px; cursor:pointer; font-size:14px;
+  background:var(--card); color:var(--ink); border:1px solid var(--line)}
+.btn.primary{background:var(--accent); color:var(--accent-ink); border-color:var(--accent);
+  font-size:16px; font-weight:700; padding:12px 28px}
+.btn:disabled{opacity:.5; cursor:not-allowed}
+#status{display:none; align-items:center; gap:12px}
+.spin{width:22px; height:22px; border:3px solid var(--accent-soft);
+  border-top-color:var(--accent); border-radius:50%; animation:r 1s linear infinite}
+@keyframes r{to{transform:rotate(360deg)}}
+#phase{font-size:14px} #elapsed{color:var(--ink2); font-size:13px}
+#result{display:none}
+#result img{width:100%; border-radius:10px; cursor:zoom-in; display:block}
+.meta{display:flex; justify-content:space-between; align-items:center; margin-top:10px; gap:8px; flex-wrap:wrap}
+.meta .t{font-size:15px; font-weight:600}
+.meta .s{color:var(--ink2); font-size:13px}
+details{margin-top:10px}
+summary{font-size:13px; color:var(--ink2); cursor:pointer}
+code{display:block; margin-top:6px; padding:10px; background:var(--bg); border-radius:8px;
+  font-size:12px; word-break:break-all; color:var(--ink2)}
+#error{display:none; color:var(--err); font-size:13px; white-space:pre-wrap; word-break:break-all}
+h2{font-size:16px; margin:26px 0 10px}
+#gallery{display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:10px}
+#gallery .g{border:1px solid var(--line); border-radius:10px; overflow:hidden;
+  cursor:pointer; background:var(--card)}
+#gallery img{width:100%; aspect-ratio:1; object-fit:cover; display:block}
+#gallery .c{padding:6px 8px; font-size:12px; color:var(--ink2)}
+#box{display:none; position:fixed; inset:0; background:rgba(0,0,0,.82); z-index:9;
+  align-items:center; justify-content:center; cursor:zoom-out}
+#box img{max-width:94vw; max-height:94vh; border-radius:8px}
+.hint{font-size:12px; color:var(--ink2); margin-top:8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>🎲 Infinigen 造物间</h1>
+  <p>每按一次，世界上就多一个从未存在过的 3D 物件 —— 纯数学规则生成，无限不重样</p>
+</header>
+
+<div class="card">
+  <div class="tabs" id="tabs"></div>
+  <div class="grid" id="items"></div>
+  <div class="row" id="baseRow" style="display:none">
+    <span class="lbl">贴在什么上</span><span class="seg" id="bases"></span>
+  </div>
+  <div class="row">
+    <span class="lbl">画质</span><span class="seg" id="quality"></span>
+    <span class="lbl" style="margin-left:8px">编号</span>
+    <input id="seed" type="number" title="相同编号 = 相同结果，可复现">
+    <button class="btn" id="dice" title="换一个随机编号">🎲</button>
+  </div>
+  <div class="row">
+    <button class="btn primary" id="go">✨ 开始生成</button>
+    <span class="hint" id="qhint"></span>
+  </div>
+</div>
+
+<div class="card" id="status">
+  <div class="spin"></div>
+  <div><div id="phase">准备中…</div><div id="elapsed"></div></div>
+</div>
+<div class="card" id="errcard" style="display:none"><div id="error"></div></div>
+
+<div class="card" id="result">
+  <img id="rimg" alt="生成结果">
+  <div class="meta">
+    <div><span class="t" id="rname"></span> <span class="s" id="rseed"></span></div>
+    <div>
+      <button class="btn" id="again">🎲 再来一个</button>
+      <a class="btn" id="dl" download>⬇ 保存图片</a>
+    </div>
+  </div>
+  <details><summary>给好奇的人：等价命令行</summary><code id="rcmd"></code></details>
+</div>
+
+<h2>📚 已生成的作品</h2>
+<div id="gallery"></div>
+<div id="box" onclick="this.style.display='none'"><img id="boximg"></div>
+
+<script>
+let CAT={}, state={kind:"material", gen:"bricks_rand", base:"material_sphere",
+                   quality:"std", polling:null};
+const $=id=>document.getElementById(id);
+const QH={fast:"约半分钟 · 抢先看个大概", std:"约一分钟 · 日常够用", high:"几分钟 · 出图收藏"};
+
+function segBtns(el, list, cur, onpick){
+  el.innerHTML="";
+  list.forEach(o=>{
+    const b=document.createElement("button");
+    b.textContent=o.name; b.className=o.id===cur?"on":"";
+    b.onclick=()=>{onpick(o.id); segBtns(el,list,o.id,onpick)};
+    el.appendChild(b);
+  });
+}
+function renderTabs(){
+  $("tabs").innerHTML="";
+  for(const k in CAT.catalog){
+    const d=document.createElement("div");
+    d.className="tab"+(k===state.kind?" on":"");
+    d.textContent={material:"🧱 材质",object:"🛋️ 家具物件",scene:"🏠 房间"}[k]||CAT.catalog[k].label;
+    d.onclick=()=>{state.kind=k; state.gen=CAT.catalog[k].items[0].id; renderTabs()};
+    $("tabs").appendChild(d);
+  }
+  renderItems();
+}
+function renderItems(){
+  const c=CAT.catalog[state.kind]; $("items").innerHTML="";
+  c.items.forEach(it=>{
+    const d=document.createElement("div");
+    d.className="chip"+(it.id===state.gen?" on":"");
+    d.innerHTML=`<span class="e">${it.emoji}</span><span class="n">${it.name}</span>`;
+    d.onclick=()=>{state.gen=it.id; renderItems()};
+    $("items").appendChild(d);
+  });
+  const hasBase=(c.bases||[]).length>0;
+  $("baseRow").style.display=hasBase?"flex":"none";
+  if(hasBase){
+    if(!c.bases.some(b=>b.id===state.base)) state.base=c.bases[0].id;
+    segBtns($("bases"), c.bases, state.base, id=>state.base=id);
+  }
+}
+function rollSeed(){ $("seed").value=Math.floor(Math.random()*1e9) }
+function setBusy(b){ $("go").disabled=b; $("again").disabled=b; $("dice").disabled=b;
+  $("status").style.display=b?"flex":"none" }
+
+async function generate(){
+  $("errcard").style.display="none";
+  const body={kind:state.kind, generator:state.gen, base:state.base,
+              quality:state.quality, seed:parseInt($("seed").value)||0};
+  const r=await fetch("/api/generate",{method:"POST",body:JSON.stringify(body)});
+  const j=await r.json();
+  if(!r.ok){ showError(j.error); return }
+  setBusy(true); poll();
+}
+function showError(msg){ $("errcard").style.display="block";
+  $("error").textContent="😵 出错了：\n"+msg; setBusy(false) }
+
+function poll(){
+  clearTimeout(state.polling);
+  state.polling=setTimeout(async()=>{
+    const j=await (await fetch("/api/status")).json();
+    if(j.state==="running"){
+      $("phase").textContent=j.phase||"生成中…";
+      $("elapsed").textContent=`${j.emoji} ${j.name} · 已用 ${Math.round(j.elapsed)} 秒`;
+      poll();
+    }else if(j.state==="done"){
+      setBusy(false); showResult(j); loadGallery();
+    }else if(j.state==="error"){
+      showError(j.error||"未知错误");
+    }else{ setBusy(false) }
+  }, 700);
+}
+function showResult(j){
+  $("result").style.display="block";
+  $("rimg").src=j.image+"?t="+Date.now();
+  $("rname").textContent=`${j.emoji} ${j.name}`;
+  $("rseed").textContent=`编号 ${j.seed} · ${Math.round(j.elapsed)} 秒`;
+  $("rcmd").textContent=j.cmd;
+  $("dl").href=j.image;
+  $("rimg").onclick=()=>{$("boximg").src=j.image; $("box").style.display="flex"};
+  $("result").scrollIntoView({behavior:"smooth", block:"nearest"});
+}
+async function loadGallery(){
+  const j=await (await fetch("/api/gallery")).json();
+  const g=$("gallery"); g.innerHTML="";
+  j.items.forEach(it=>{
+    const d=document.createElement("div"); d.className="g";
+    d.innerHTML=`<img loading="lazy" src="${it.image}"><div class="c">${it.emoji} ${it.name} · ${it.seed}</div>`;
+    d.onclick=()=>{$("boximg").src=it.image; $("box").style.display="flex"};
+    g.appendChild(d);
+  });
+}
+(async function(){
+  CAT=await (await fetch("/api/catalog")).json();
+  renderTabs();
+  segBtns($("quality"), CAT.quality, state.quality,
+          id=>{state.quality=id; $("qhint").textContent=QH[id]||""});
+  $("qhint").textContent=QH[state.quality];
+  rollSeed();
+  $("dice").onclick=rollSeed;
+  $("go").onclick=generate;
+  $("again").onclick=()=>{rollSeed(); generate()};
+  loadGallery();
+  const s=await (await fetch("/api/status")).json();   // 刷新页面时接上未完成的任务
+  if(s.state==="running"){ setBusy(true); poll() }
+})();
+</script>
+</body>
+</html>
