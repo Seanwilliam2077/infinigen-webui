@@ -61,8 +61,11 @@ flowchart TD
 | 8 | **solve_small** | ✓ | 90 |
 | 9 | **populate_assets** | ✓ | 148 |
 | 11-12 | room_doors / room_windows | ✓ | 192 → 210 |
+| — | *split_rooms*（非 run_stage） | ✓ | **250** |
 | 17-19 | room_walls / floors / ceilings | ✓ | 250 |
 | 22-23 | overhead_cam / hide_other_rooms | ✓ | 251 |
+
+210 → 250 这一跳不是 `room_walls` 造成的，而是中间的 `split_rooms`（`room/decorate.py:59-96`）：它把每个房间的网格按面标签拆成 wall / floor / ceiling / exterior 四个独立对象，**10 个房间 × 4 = 40 个新对象**。后面的 `room_walls/floors/ceilings` 只是给这些拆出来的网格赋材质，不新建对象。
 
 ### 1.1 先画图，不画墙
 
@@ -108,9 +111,19 @@ flowchart TD
 
 **cutter 挖完洞不删除**，因为后续 `populate_doors/populate_windows` 直接把真实门窗资产 parent 到 cutter 上当定位锚点（`decorate.py:388`），cutter 的尺寸就是洞口尺寸，窗户工厂据此生成匹配尺寸的窗。
 
-门窗类型由一张**声明式数据表**决定（`solidifier.py:65-157`）：`combined_rooms` 是 `(房间类型集合 × 是否图上相邻) → 加权随机` 的查表，例如 `{Hallway, LivingRoom, DiningRoom}` 在非图相邻时是 30% 开口 / 30% 落地窗 / 40% 门；而 `{Bedroom}` 单独一组，恒为 `none`——**卧室之间永远是实墙**。门的朝向由从入口房间 BFS 出的跳数决定，朝向"离入口更远"的一侧。
+**内墙**开什么由一张声明式数据表决定（`solidifier.py:65-157`）：`combined_rooms` 把 `(房间类型集合 × 是否图上相邻)` 映射到加权随机，例如 `{Hallway, LivingRoom, DiningRoom}` 在非图相邻时是 30% 开口 / 30% 落地窗 / 40% 门；`{Bedroom}` 单独一组恒为 `none`——卧室之间永远是实墙。门的朝向由从入口房间 BFS 出的跳数决定，朝向"离入口更远"的一侧。
 
-本次运行产出 **28 个 cutter = 18 窗 + 10 门**，一个开口都没有——因为 `singleroom.gin:1` 设了 `enable_open=False`。
+> ⚠️ **但本次运行完全没走这张表**。`singleroom.gin` 第一行是 `BlueprintSolidifier.enable_open=False`，而 `solidifier.py:456` 的条件是 `if len(i) > 0 and self.enable_open:`——`enable_open=False` 时直接短路到 else 分支：
+>
+> ```python
+> fn = "door" if k in neighbours[l] else "none"
+> ```
+>
+> 于是内墙只可能是"一道门"或"完全不开"，**室内窗和开放式通口一并被关掉**（产生它们的 `window`/`panoramic` 分支在 match 里永远不会命中）。
+
+**外墙**窗户走的是完全不同的路径 `make_exterior_cutters`（`solidifier.py:229, :496`），**不受 `enable_open` 影响**：把每条外墙边按 6~8m 分段后逐段开窗，落地窗概率由 `panoramic_rooms` 表给（阳台 0.8、车库 1.0、走廊 0.1），开不开窗还受 `window_rooms` 表影响（储物间 0.0、卫生间 0.5）。
+
+所以本次的 **28 个 cutter = 18 窗 + 10 门**里，18 扇窗**全部来自外墙**，10 道门全部来自"图上相邻 → door"这条短路分支。`solve_state.json` 里所有 `RoomNeighbour` 的 `connector_types` 只有 `Wall` 和 `Door` 两种，正好印证了这一点。
 
 ---
 
@@ -206,6 +219,7 @@ annealing it=27/50 dt=3.308 n=44 loss=2.337e+01 viol=0.0 temp=1.85e-02
 
 - `it=27/50` — 50 步说明这是 solve_small 阶段
 - `n=44` — 当前 State 里的对象总数
+- `loss` / `viol` — **记的是当前已接受状态的值，不是本次提议的值**。所以 loss 曲线是阶梯状的，只在 accept 的那一步才变
 - `temp=1.85e-02` — 可精确验证：`steps = 50×0.85 = 42.5`，`cooling_rate = (0.001/3)^(1/42.5) = 0.82834`，`3 × 0.82834^27 = 0.01855` ✓
 - `diff=-0.37` — 这次提议让 loss **下降**了
 - `prob=1.00` — 接受概率 100%
@@ -294,7 +308,17 @@ Infinigen 的材质活在 Blender shader 节点里，任何外部引擎都读不
 
 `--omniverse` 额外做三件事：点光源瓦数换算到 Omniverse 单位、`origin_set(ORIGIN_GEOMETRY, MEDIAN)` 设质心、删除 0 面网格。
 
-**452 张贴图** = 各 mesh × 最多 5 个通道，只有真正有对应 shader 输入的才会写盘。下面是本次烘出的墙面 Albedo（`balcony_0_0_wall_DIFFUSE.png`）——注意墙上的污渍、色差和边角磨损全部是程序化生成的，不是任何贴图库里的素材：
+本次实际烘焙了 **129 个网格**（`export_logs.log` 里 "UV Unwrapping" 恰好 129 次，0 次失败），产出 **452 张 PNG**：
+
+| 通道 | 张数 | 说明 |
+|---|---|---|
+| DIFFUSE / NORMAL / ROUGHNESS | 129 × 3 | 每个网格必有 |
+| METAL | 26 | 只有金属材质才写盘 |
+| TRANSMISSION | 39 | 只有透射材质才写盘 |
+
+> **129 个网格烘焙，但导出的 USD 里只有 54 个** —— 差额来自可见性过滤。`hide_other_rooms` 阶段（由 `overhead.gin:2` 打开）把 9 个未求解房间的墙/地/顶/外壳以及不指向保留房间的 cutter 全部置 `hide_render=True`；烘焙阶段不管可见性（一次跑完避免二次运行），而 USD 导出按可见性筛选。所以最终进入仿真的，只有那个被求解的阳台房间及其家具。
+
+下面是本次烘出的墙面 Albedo（`balcony_0_0_wall_DIFFUSE.png`）——注意墙上的污渍、色差和边角磨损全部是程序化生成的，不是任何贴图库里的素材：
 
 <img src="examples/baked_wall_diffuse.png" width="360" alt="烘焙出的墙面 Albedo 贴图">
 
